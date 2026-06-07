@@ -1,0 +1,69 @@
+name: Deploy Frontend
+
+# Deploys the static website to the EC2 instance on every push to main.
+# Runs ONLY on push to main (never on pull_request) so that fork PRs can
+# never access the deployment secrets.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+# Shares the lock with the backend workflow so the two never deploy at once.
+concurrency:
+  group: deploy-datra-analytics
+  cancel-in-progress: false
+
+env:
+  APP_DIR: /home/ubuntu/datra-analytics-final
+
+jobs:
+  deploy:
+    name: Rsync site & rebuild frontend on EC2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Sync site -> server website/
+        run: |
+          rsync -az --delete \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude '.DS_Store' \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes" \
+            ./ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${APP_DIR}/website/"
+
+      - name: Rebuild & restart frontend container
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            "cd ${APP_DIR} && docker-compose up -d --build frontend"
+
+      - name: Health check (/health)
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            "cd ${APP_DIR} && \
+             for i in \$(seq 1 20); do \
+               if curl -sf http://localhost/health >/dev/null; then \
+                 echo 'Frontend healthy'; exit 0; \
+               fi; \
+               echo \"waiting for frontend... (\$i/20)\"; sleep 3; \
+             done; \
+             echo 'Health check FAILED - dumping last 60 log lines:'; \
+             docker-compose logs --tail=60 frontend; exit 1"
+
+      - name: Prune dangling images
+        if: always()
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            "docker image prune -f >/dev/null 2>&1 || true"
