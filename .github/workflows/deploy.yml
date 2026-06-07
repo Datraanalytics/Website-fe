@@ -45,7 +45,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
             "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
-            "cd ${APP_DIR} && docker-compose up -d --build frontend"
+            "cd ${APP_DIR} && docker compose up -d --build --no-deps frontend"
 
       - name: Health check (/health)
         run: |
@@ -59,7 +59,7 @@ jobs:
                echo \"waiting for frontend... (\$i/20)\"; sleep 3; \
              done; \
              echo 'Health check FAILED - dumping last 60 log lines:'; \
-             docker-compose logs --tail=60 frontend; exit 1"
+             docker compose logs --tail=60 frontend; exit 1"
 
       - name: Prune dangling images
         if: always()
