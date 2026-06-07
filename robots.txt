@@ -1,0 +1,14 @@
+# Robots.txt for Datra Analytics
+# https://datraanalytics.com
+
+User-agent: *
+Allow: /
+
+# Disallow API endpoints
+Disallow: /api/
+
+# Disallow health check
+Disallow: /health
+
+# Sitemap
+Sitemap: https://datraanalytics.com/sitemap.xml
